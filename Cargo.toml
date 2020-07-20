@@ -1,0 +1,14 @@
+[package]
+name = "read_filter"
+version = "0.1.0"
+authors = ["sholderbach <ho.steve@web.de>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+regex = "1"
+bio = "0.31"
+clap = "2"
+flate2 = "1.0"
+niffler = "2.2.0"

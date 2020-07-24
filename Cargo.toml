@@ -1,8 +1,10 @@
 [package]
 name = "read_filter"
 version = "0.1.0"
-authors = ["sholderbach <ho.steve@web.de>"]
+authors = ["Stefan Holderbach"]
+description = "WIP! NOT FULLY IMPLEMENTED: Small command line tool to extract relevant information from amplicon seq reads of defined regions. Reimplementation of a personal python tool."
 edition = "2018"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -10,6 +12,5 @@ edition = "2018"
 regex = "1"
 bio = "0.31"
 clap = "2"
-flate2 = "1.0"
 niffler = "2.2.0"
 counter = "0.5"

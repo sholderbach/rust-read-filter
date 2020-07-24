@@ -630,7 +630,6 @@ dependencies = [
  "bio",
  "clap",
  "counter",
- "flate2",
  "niffler",
  "regex",
 ]

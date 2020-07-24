@@ -6,8 +6,9 @@ extern crate clap;
 
 #[allow(unused)]
 fn main() {
-    // May be consts
-    let out_ending = ".processed.tsv";
+    const OUT_ENDING: &str = ".processed.tsv";
+    const RR_ENDING: &str = ".readreport.tsv";
+    const QC_ENDING: &str = ".quality.tsv";
     // Specify CLI
     let matches = clap_app!(readfilter =>
         (version: "0.1")
@@ -30,9 +31,9 @@ fn main() {
     // Same as before...
     let infile = std::path::Path::new(infile);
     let bname = infile.file_name().expect("Input needs to be a file");
-    let oname = String::from(bname.to_str().unwrap()).replace(".fastq.gz", out_ending)
-                                                     .replace(".txt.gz", out_ending)
-                                                     .replace(".fastq", out_ending);
+    let oname = String::from(bname.to_str().unwrap()).replace(".fastq.gz", OUT_ENDING)
+                                                     .replace(".txt.gz", OUT_ENDING)
+                                                     .replace(".fastq", OUT_ENDING);
     let outdir = std::path::Path::new(outdir);
     let outfile = outdir.join(oname);
     println!("{}", outfile.to_str().unwrap());

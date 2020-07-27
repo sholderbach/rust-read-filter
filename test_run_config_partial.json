@@ -1,0 +1,7 @@
+{
+    "left_flank": "AGGGCCAG",
+    "right_flank": "GCCCAGGC",
+    "content_length": 27,
+    "expect_begin": 36,
+    "tolerance": 8
+}

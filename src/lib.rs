@@ -1,6 +1,7 @@
 pub mod handling {
     //! Contains Traits to unwrap without panic but a deliberate process exit.
     //! Behavior regarding teardown destructors might need to be considered as it calls std::process:exit
+    // TODO Reconsider this due to potential teardown issues.
     use std::process;
     /// Lets the program exit with exit code one based on Result<T,E> with desired messages to stderr
     pub trait GracefulResult<T> {
@@ -68,9 +69,9 @@ pub mod jsonconf {
     pub struct FilterConf {
         pub left_flank: String,
         pub right_flank: String,
-        pub content_length: i32,
-        pub expect_begin: i32,
-        pub tolerance: i32,
+        pub content_length: u32,
+        pub expect_begin: u32,
+        pub tolerance: u32,
         pub qual_peak: Option<u8>,
         pub qual_mean: Option<u8>,
     }

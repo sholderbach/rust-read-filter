@@ -1,6 +1,6 @@
 {
-    "left_flank": "AGAGAGGC",
-    "right_flank": "GCCCAGGC",
+    "left_flank": "GCCTGGGC",
+    "right_flank": "GCCTCTCT",
     "content_length": 21,
     "expect_begin": 36,
     "tolerance": 100,

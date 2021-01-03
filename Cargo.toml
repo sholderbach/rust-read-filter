@@ -21,3 +21,6 @@ serde = "1"
 assert_cmd = "1"
 predicates = "1"
 tempfile = "3"
+
+[profile.release]
+debug = true

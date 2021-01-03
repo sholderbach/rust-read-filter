@@ -1,10 +1,12 @@
 use bio::alphabets::dna;
 use bio::io::fastq;
+use counter::Counter;
 use fastq::Records;
 use read_filter::handling::{GracefulOption, GracefulResult};
 use read_filter::jsonconf;
 use regex::bytes::Regex;
 use std::fmt;
+use std::iter::Iterator;
 #[allow(unused_imports)]
 use std::{error::Error, fmt::Display, todo};
 
@@ -35,16 +37,22 @@ fn main() {
     let (reader, _) = niffler::from_path(infile).unwrap_formatful("Invalid input path!");
     let fq_reader = fastq::Reader::new(reader);
 
-    let rf = ReadFilter::new(fq_reader.records(), &cfg);
-    // TODO: Keep track of associated statistics
-    // (total reads, raw matches, rejected based on quality etc.)
-    for sm in rf {
-        println!("{}, Peak {}, Mean {}", sm, sm.peak_qual(), sm.mean_qual());
-    }
+    let mut stats = RunningStats::default();
+    let rf = ReadFilter::new(fq_reader.records(), &cfg, &mut stats);
+
+    let c = rf
+        .map(move |a| String::from_utf8(a.content).unwrap())
+        .collect::<Counter<_>>();
+    println!("{:?}", stats)
+    // println!("{:?}", c);
+    // for sm in rf {
+    //     println!("{}, Peak {}, Mean {}", sm, sm.peak_qual(), sm.mean_qual());
+    // }
 }
 
 #[derive(Debug, PartialEq)]
 struct SearchMatch {
+    // TODO: lazy alloc alternative that only allocs if a match is confirmed to be kept
     // Currently we don't care about types for optimal memory foot print or alignment. Simpler ownership model is preferred over optimization of heap allocations.
     // Array of structs might be more practical than struct of arrays as the primary application is streaming intensive
     content: Vec<u8>,
@@ -89,21 +97,71 @@ impl Display for SearchMatch {
     }
 }
 
-struct ReadFilter<T: std::io::Read> {
+#[derive(Default, Debug)]
+struct RunningStats {
+    total_reads: u32,
+    matching_reads: u32,
+    ambigiuous_rejected: u32,
+    peak_rejected: u32,
+    mean_rejected: u32,
+}
+
+fn write_stats_header<T: std::io::Write>(buf: &mut T, stats: &RunningStats) -> std::io::Result<()> {
+    let qual_reads = stats.matching_reads - (stats.peak_rejected + stats.mean_rejected);
+    write!(
+        buf,
+        "# raw_total_reads: {total_reads}\n\
+            # matching_reads: {matching_reads}\n\
+            # peak_qual_rejected_reads: {peak_rejected}\n\
+            # mean_qual_rejected_reads: {mean_rejected}\n\
+            # ambiguous_matches_rejected: {ambiguous_rejected}\n\
+            # quality_reads: {qual_reads}\n",
+        total_reads = stats.total_reads,
+        matching_reads = stats.matching_reads,
+        peak_rejected = stats.peak_rejected,
+        mean_rejected = stats.mean_rejected,
+        ambiguous_rejected = stats.ambigiuous_rejected,
+        qual_reads = qual_reads,
+    )
+}
+
+fn write_config_header<T: std::io::Write>(buf: &mut T, cfg: &ProgConfig) -> std::io::Result<()> {
+    // Writing the regex is to reflect the original python version, but no guarantee that we use the exact regex
+    // Code duplication or out of sync risk
+    let expt_begin = cfg.expected_start.saturating_sub(cfg.position_tolerance);
+    let expt_end = cfg.expected_start + cfg.position_tolerance;
+    let regex = format!("(?-u)^.{{{expt_begin},{expt_end}}}{left_flank}([ACGT]{{{content_length}}}){right_flank}.*$",
+            expt_begin=expt_begin,
+            expt_end=expt_end,
+            left_flank=cfg.left_flank,
+            right_flank=cfg.right_flank,
+            content_length=cfg.insert_length);
+    write!(
+        buf,
+        "# filter: {regex}\n\
+            # accepted_peak_qual: {peak_accepted}\n\
+            # accepted_mean_qual: {mean_accepted}\n",
+        regex = regex,
+        peak_accepted = cfg.min_peak_qual.unwrap_or_default(),
+        mean_accepted = cfg.min_mean_qual.unwrap_or_default(),
+    )
+}
+struct ReadFilter<'a, T: std::io::Read> {
     fq_records: Records<T>,
     regex: Regex,
     min_mean_qual: Option<u8>,
     min_peak_qual: Option<u8>,
+    stats: &'a mut RunningStats,
 }
 
-impl<T> ReadFilter<T>
+impl<'a, T> ReadFilter<'a, T>
 where
     T: std::io::Read,
 {
-    fn new(fq_records: Records<T>, cfg: &ProgConfig) -> Self {
+    fn new(fq_records: Records<T>, cfg: &ProgConfig, stats: &'a mut RunningStats) -> Self {
         let expt_begin = cfg.expected_start.saturating_sub(cfg.position_tolerance);
         let expt_end = cfg.expected_start + cfg.position_tolerance;
-        let regex = format!("(?-u)^([ACGTN]{{{expt_begin},{expt_end}}}){left_flank}([ACGT]{{{content_length}}}){right_flank}.*$",
+        let regex = format!("(?-u)^.{{{expt_begin},{expt_end}}}{left_flank}([ACGT]{{{content_length}}}){right_flank}.*$",
             expt_begin=expt_begin,
             expt_end=expt_end,
             left_flank=cfg.left_flank,
@@ -111,7 +169,7 @@ where
             content_length=cfg.insert_length);
         let regex = Regex::new(&regex).expect("Error while compiling regex"); // Any sensible checks that should be done before?
 
-        let min_mean_qual = cfg.min_mean_qual; 
+        let min_mean_qual = cfg.min_mean_qual;
         let min_peak_qual = cfg.min_peak_qual;
 
         ReadFilter {
@@ -119,11 +177,12 @@ where
             regex,
             min_mean_qual,
             min_peak_qual,
+            stats,
         }
     }
 }
 
-impl<T> Iterator for ReadFilter<T>
+impl<'a, T> Iterator for ReadFilter<'a, T>
 where
     T: std::io::Read,
 {
@@ -132,14 +191,31 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         let res = loop {
             let rec = self.fq_records.next()?.ok()?;
+            self.stats.total_reads += 1;
             let provisional = match match_both_strands(&rec, &self.regex) {
                 (Some(a), None) => Some(a),
                 (None, Some(b)) => Some(b),
-                (Some(_), Some(_)) => None, // TODO: How to deal with this illegal situation?
+                (Some(_), Some(_)) => {
+                    self.stats.ambigiuous_rejected += 1;
+                    None
+                } // TODO: How to deal with this illegal situation?
                 _ => None,
             };
             if let Some(result) = provisional {
-                // TODO: implement qual filter
+                self.stats.matching_reads += 1;
+                if let Some(min) = self.min_peak_qual {
+                    if result.peak_qual() < min {
+                        self.stats.peak_rejected += 1;
+                        continue;
+                    }
+                }
+                if let Some(min) = self.min_mean_qual {
+                    if result.mean_qual() < min {
+                        self.stats.mean_rejected += 1;
+                        continue;
+                    }
+                }
+
                 break result;
             }
         };
@@ -147,16 +223,17 @@ where
     }
 }
 
+// TODO Try out regex free alternative
 fn match_both_strands(
     read: &bio::io::fastq::Record,
     compiled_expression: &Regex,
 ) -> (Option<SearchMatch>, Option<SearchMatch>) {
-    let rev_seq = dna::revcomp(read.seq());
+    let rev_seq = dna::revcomp(read.seq()); // TODO: Remove eager alloc
     // TODO: Reduce Code duplication
     let fwd = if let Some(captures) = compiled_expression.captures(read.seq()) {
         let content_match = captures
-            .get(2)
-            .expect("Second capture group should contain the sequence content");
+            .get(1)
+            .expect("capture group should contain the sequence content");
         let content = content_match.as_bytes().to_vec();
         let start_pos = content_match.start();
         let quality: Vec<u8> = (&read.qual()[start_pos..content_match.end()]).to_vec();
@@ -172,8 +249,8 @@ fn match_both_strands(
 
     let rev = if let Some(captures) = compiled_expression.captures(&rev_seq) {
         let content_match = captures
-            .get(2)
-            .expect("Second capture group should contain the sequence content");
+            .get(1)
+            .expect("capture group should contain the sequence content");
         let content = content_match.as_bytes().to_vec();
         let start_pos = content_match.start();
         // Reversing quality

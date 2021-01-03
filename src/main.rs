@@ -5,7 +5,7 @@ use fastq::Records;
 use read_filter::handling::{GracefulOption, GracefulResult};
 use read_filter::jsonconf;
 use regex::bytes::Regex;
-use std::fmt;
+use std::{fmt, io::BufWriter, io::Write};
 use std::iter::Iterator;
 #[allow(unused_imports)]
 use std::{error::Error, fmt::Display, todo};
@@ -31,7 +31,9 @@ fn main() {
         .replace(".txt.gz", OUT_ENDING)
         .replace(".fastq", OUT_ENDING);
     let outdir = std::path::Path::new(&cfg.outdir);
+    std::fs::create_dir_all(outdir).unwrap_messageful(&format!("Could not create output directory at: {:?}", outdir.to_str().unwrap()));
     let outfile = outdir.join(oname);
+    let ofile = std::fs::File::create(&outfile).unwrap_messageful(&format!("Could not create output file at: {:?}", outfile.to_str().unwrap()));
 
     // FASTQ parsing
     let (reader, _) = niffler::from_path(infile).unwrap_formatful("Invalid input path!");
@@ -41,13 +43,16 @@ fn main() {
     let rf = ReadFilter::new(fq_reader.records(), &cfg, &mut stats);
 
     let c = rf
-        .map(move |a| String::from_utf8(a.content).unwrap())
+        .map(move |a| a.content)
         .collect::<Counter<_>>();
-    println!("{:?}", stats)
-    // println!("{:?}", c);
-    // for sm in rf {
-    //     println!("{}, Peak {}, Mean {}", sm, sm.peak_qual(), sm.mean_qual());
-    // }
+    
+    let mut ofile= BufWriter::new(ofile);
+    write_config_header(&mut ofile, &cfg).unwrap_messageful("Error while writing output");
+    write_stats_header(&mut ofile, &stats);
+    write!(ofile, "seq\treads\n");
+    for (seq, count) in c.iter() {
+        write!(ofile, "{}\t{}\n", std::str::from_utf8(seq).unwrap(), count);
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -57,7 +62,7 @@ struct SearchMatch {
     // Array of structs might be more practical than struct of arrays as the primary application is streaming intensive
     content: Vec<u8>,
     // We need to own the content at some point
-    quality: Vec<u8>,
+    quality: Vec<u8>, // TODO maybe have a variant that doesn't keep quality if not needed
     // Keeping the quality string around may be optional.
     // inherent properties like mean or peak qual score can be computed trivially or alternatively stored if memory footprind would be a serious concern.
     reverse_strand: bool,
@@ -79,6 +84,25 @@ impl SearchMatch {
         let avg_qual =
             self.quality.iter().fold(0u32, |x, b| x + (*b as u32)) / self.quality.len() as u32 - 33;
         avg_qual as u8
+    }
+
+    fn to_fastq(&self, id: &str) -> fastq::Record {
+        let strand = if self.reverse_strand { "-" } else { "+" };
+        fastq::Record::with_attrs(id, Some(strand), &self.content, &self.quality)
+    }
+
+    fn to_fastq_original_strand(&self, id: &str) -> fastq::Record {
+        let strand = if self.reverse_strand { "-" } else { "+" };
+        if !self.reverse_strand {
+            fastq::Record::with_attrs(id, Some(strand), &self.content, &self.quality)
+        } else {
+            fastq::Record::with_attrs(
+                id,
+                Some(strand),
+                &bio::alphabets::dna::revcomp(&self.content),
+                &self.quality.iter().rev().copied().collect::<Vec<_>>(),
+            )
+        }
     }
 }
 impl Display for SearchMatch {
@@ -229,7 +253,7 @@ fn match_both_strands(
     compiled_expression: &Regex,
 ) -> (Option<SearchMatch>, Option<SearchMatch>) {
     let rev_seq = dna::revcomp(read.seq()); // TODO: Remove eager alloc
-    // TODO: Reduce Code duplication
+                                            // TODO: Reduce Code duplication
     let fwd = if let Some(captures) = compiled_expression.captures(read.seq()) {
         let content_match = captures
             .get(1)

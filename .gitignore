@@ -13,3 +13,4 @@ target/
 # Own
 
 *.fastq.gz
+*.tsv

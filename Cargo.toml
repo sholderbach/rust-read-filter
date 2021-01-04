@@ -9,7 +9,6 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-regex = "1"
 bio = "0.32"
 clap = "2"
 niffler = "2.3" # explcitly used for gzip handling

@@ -4,11 +4,14 @@ use counter::Counter;
 use fastq::Records;
 use read_filter::handling::{GracefulOption, GracefulResult};
 use read_filter::jsonconf;
-use regex::bytes::Regex;
 use std::{fmt, io::BufWriter, io::Write};
 use std::iter::Iterator;
 #[allow(unused_imports)]
 use std::{error::Error, fmt::Display, todo};
+#[allow(unused_imports)]
+use bio::pattern_matching::{shift_and, bndm};
+
+type ExactPattern = shift_and::ShiftAnd;
 
 #[macro_use]
 extern crate clap;
@@ -49,9 +52,9 @@ fn main() {
     let mut ofile= BufWriter::new(ofile);
     write_config_header(&mut ofile, &cfg).unwrap_messageful("Error while writing output");
     write_stats_header(&mut ofile, &stats);
-    write!(ofile, "seq\treads\n");
+    writeln!(ofile, "seq\treads");
     for (seq, count) in c.iter() {
-        write!(ofile, "{}\t{}\n", std::str::from_utf8(seq).unwrap(), count);
+        writeln!(ofile, "{}\t{}", std::str::from_utf8(seq).unwrap(), count);
     }
 }
 
@@ -99,7 +102,7 @@ impl SearchMatch {
             fastq::Record::with_attrs(
                 id,
                 Some(strand),
-                &bio::alphabets::dna::revcomp(&self.content),
+                &dna::revcomp(&self.content),
                 &self.quality.iter().rev().copied().collect::<Vec<_>>(),
             )
         }
@@ -154,7 +157,7 @@ fn write_config_header<T: std::io::Write>(buf: &mut T, cfg: &ProgConfig) -> std:
     // Code duplication or out of sync risk
     let expt_begin = cfg.expected_start.saturating_sub(cfg.position_tolerance);
     let expt_end = cfg.expected_start + cfg.position_tolerance;
-    let regex = format!("(?-u)^.{{{expt_begin},{expt_end}}}{left_flank}([ACGT]{{{content_length}}}){right_flank}.*$",
+    let regex = format!("^.{{{expt_begin},{expt_end}}}{left_flank}([ACGT]{{{content_length}}}){right_flank}.*$",
             expt_begin=expt_begin,
             expt_end=expt_end,
             left_flank=cfg.left_flank,
@@ -170,9 +173,24 @@ fn write_config_header<T: std::io::Write>(buf: &mut T, cfg: &ProgConfig) -> std:
         mean_accepted = cfg.min_mean_qual.unwrap_or_default(),
     )
 }
+
+
+struct PrecomputedPatterns {
+    fwd_start: ExactPattern,
+    fwd_end: ExactPattern,
+    rev_start: ExactPattern, 
+    rev_end: ExactPattern,
+    content_len: usize,
+    start_len: usize,
+    end_len:usize,
+    expt_begin: usize,
+    expt_end: usize,
+
+}
+
 struct ReadFilter<'a, T: std::io::Read> {
     fq_records: Records<T>,
-    regex: Regex,
+    pats: PrecomputedPatterns,
     min_mean_qual: Option<u8>,
     min_peak_qual: Option<u8>,
     stats: &'a mut RunningStats,
@@ -185,20 +203,32 @@ where
     fn new(fq_records: Records<T>, cfg: &ProgConfig, stats: &'a mut RunningStats) -> Self {
         let expt_begin = cfg.expected_start.saturating_sub(cfg.position_tolerance);
         let expt_end = cfg.expected_start + cfg.position_tolerance;
-        let regex = format!("(?-u)^.{{{expt_begin},{expt_end}}}{left_flank}([ACGT]{{{content_length}}}){right_flank}.*$",
-            expt_begin=expt_begin,
-            expt_end=expt_end,
-            left_flank=cfg.left_flank,
-            right_flank=cfg.right_flank,
-            content_length=cfg.insert_length);
-        let regex = Regex::new(&regex).expect("Error while compiling regex"); // Any sensible checks that should be done before?
 
         let min_mean_qual = cfg.min_mean_qual;
         let min_peak_qual = cfg.min_peak_qual;
 
+        let start_len = cfg.left_flank.len();
+        let end_len = cfg.right_flank.len();
+        let fwd_start = ExactPattern::new(cfg.left_flank.as_bytes());
+        let fwd_end = ExactPattern::new(cfg.right_flank.as_bytes());
+        let rev_start = ExactPattern::new(dna::revcomp(cfg.left_flank.as_bytes()));
+        let rev_end = ExactPattern::new(dna::revcomp(cfg.right_flank.as_bytes()));
+
+        let pats = PrecomputedPatterns{
+            fwd_start,
+            fwd_end,
+            rev_start,
+            rev_end,
+            content_len: cfg.insert_length as usize,
+            start_len,
+            end_len,
+            expt_begin: expt_begin as usize,
+            expt_end: expt_end as usize,
+        };
+
         ReadFilter {
             fq_records,
-            regex,
+            pats,
             min_mean_qual,
             min_peak_qual,
             stats,
@@ -214,9 +244,9 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         let res = loop {
-            let rec = self.fq_records.next()?.ok()?;
+            let rec = self.fq_records.next()?.ok()?; // ParseErrors are silenced!
             self.stats.total_reads += 1;
-            let provisional = match match_both_strands(&rec, &self.regex) {
+            let provisional = match match_both_strands(&rec, &self.pats) {
                 (Some(a), None) => Some(a),
                 (None, Some(b)) => Some(b),
                 (Some(_), Some(_)) => {
@@ -240,57 +270,107 @@ where
                     }
                 }
 
-                break result;
-            }
+                // First heap allocs after fastq parse happen here
+                break result.materialize();
+            } // Else loop again till match or exhaustion
         };
         Some(res)
     }
 }
 
-// TODO Try out regex free alternative
-fn match_both_strands(
-    read: &bio::io::fastq::Record,
-    compiled_expression: &Regex,
-) -> (Option<SearchMatch>, Option<SearchMatch>) {
-    let rev_seq = dna::revcomp(read.seq()); // TODO: Remove eager alloc
-                                            // TODO: Reduce Code duplication
-    let fwd = if let Some(captures) = compiled_expression.captures(read.seq()) {
-        let content_match = captures
-            .get(1)
-            .expect("capture group should contain the sequence content");
-        let content = content_match.as_bytes().to_vec();
-        let start_pos = content_match.start();
-        let quality: Vec<u8> = (&read.qual()[start_pos..content_match.end()]).to_vec();
-        Some(SearchMatch {
-            content,
-            quality,
-            reverse_strand: false,
-            start_pos: (start_pos as u32),
-        })
-    } else {
-        None
-    };
+/// Zero-copy version of a match for internal processing
+/// the raw `seq` and `qual` fields are not adjusted to account for the correct strand
+struct CandidateMatch<'a> {
+    seq: &'a [u8],
+    quality: &'a [u8],
+    reverse_strand: bool,
+    start_pos: u32, // Adjusted to common strandedness? TODO
+}
 
-    let rev = if let Some(captures) = compiled_expression.captures(&rev_seq) {
-        let content_match = captures
-            .get(1)
-            .expect("capture group should contain the sequence content");
-        let content = content_match.as_bytes().to_vec();
-        let start_pos = content_match.start();
-        // Reversing quality
-        let end_pos = content_match.end();
-        let seq_len = read.seq().len();
-        let mut quality: Vec<u8> = (&read.qual()[seq_len - end_pos..seq_len - start_pos]).to_vec();
-        quality.reverse();
-        Some(SearchMatch {
-            content,
-            quality,
+impl<'a> CandidateMatch<'a>{
+    fn materialize(self) -> SearchMatch {
+        //! Consumes self to produce an owned `SearchMatch`
+        //! calls `dna::revcomp` to produce the useful sequence orientation
+        if !self.reverse_strand {
+            SearchMatch {
+                content: self.seq.to_vec(),
+                quality: self.quality.to_vec(),
+                reverse_strand: self.reverse_strand,
+                start_pos: self.start_pos,
+            }
+        } else {
+            let mut quality = self.quality.to_vec();
+            quality.reverse();
+            SearchMatch {
+                content: dna::revcomp(self.seq),
+                quality,
+                reverse_strand: self.reverse_strand,
+                start_pos: self.start_pos,
+            }
+        }
+    }
+
+    fn peak_qual(&self) -> u8 {
+        //! Lowest quality score found
+        self.quality
+            .iter()
+            .min()
+            .expect("Expect the extraction of nonempty content")
+            - 33
+    }
+    fn mean_qual(&self) -> u8 {
+        //! Average quality score
+        //! Performs integer division
+        let avg_qual =
+            self.quality.iter().fold(0u32, |x, b| x + (*b as u32)) / self.quality.len() as u32 - 33;
+        // SAFETY: as u8 considered safe as valid PHRED string assumed
+        avg_qual as u8
+    }
+}
+
+fn match_both_strands<'a>(
+    read: &'a bio::io::fastq::Record,
+    patterns: &PrecomputedPatterns,
+) -> (Option<CandidateMatch<'a>>, Option<CandidateMatch<'a>>) {
+    let read_seq = read.seq();
+    let read_len = read_seq.len();
+
+    let mat_fwd = patterns.fwd_start.find_all(read_seq).filter(|&idx| 
+        (idx>= patterns.expt_begin) 
+         && (idx<= patterns.expt_end) 
+         && (patterns.fwd_end.find_all(read_seq).any(|odx| 
+            idx + patterns.start_len + patterns.content_len == odx))).next();
+    
+    let fwd = if let Some(idx) = mat_fwd {
+        let start_idx = idx + patterns.start_len;
+        let range =start_idx..start_idx+patterns.content_len;
+        let mat = CandidateMatch{
+            seq: &read_seq[range.clone()],
+            quality: &read.qual()[range],
+            reverse_strand: false,
+            start_pos: start_idx as u32,
+        };
+        Some(mat)
+    } else {None};
+    
+
+    let mat_rev = patterns.rev_start.find_all(read_seq).filter(|&idx| 
+        (idx + patterns.start_len + patterns.expt_begin <= read_len) 
+         && (idx + patterns.start_len + patterns.expt_end >= read_len) 
+         && (patterns.rev_end.find_all(read_seq).any(|odx|
+            odx + patterns.end_len + patterns.content_len == idx))).next();
+    let rev = if let Some(idx) = mat_rev {
+        let start_pos = read_len - idx;
+        let range = idx-patterns.content_len..idx;
+        let mat = CandidateMatch{
+            seq: &read_seq[range.clone()],
+            quality: &read.qual()[range],
             reverse_strand: true,
-            start_pos: (start_pos as u32),
-        })
-    } else {
-        None
-    };
+            start_pos: start_pos as u32,
+        };
+        Some(mat)
+    } else {None};
+    
     (fwd, rev)
 }
 

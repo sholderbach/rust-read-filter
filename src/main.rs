@@ -24,7 +24,6 @@ const QC_ENDING: &str = ".quality.tsv";
 #[allow(unused)]
 fn main() {
     let cfg = ProgConfig::from_cli().unwrap_graceful();
-    // Same as before...
     let infile = std::path::Path::new(&cfg.infile);
     let bname = infile
         .file_name()
@@ -60,16 +59,9 @@ fn main() {
 
 #[derive(Debug, PartialEq)]
 struct SearchMatch {
-    // TODO: lazy alloc alternative that only allocs if a match is confirmed to be kept
-    // Currently we don't care about types for optimal memory foot print or alignment. Simpler ownership model is preferred over optimization of heap allocations.
-    // Array of structs might be more practical than struct of arrays as the primary application is streaming intensive
     content: Vec<u8>,
-    // We need to own the content at some point
     quality: Vec<u8>, // TODO maybe have a variant that doesn't keep quality if not needed
-    // Keeping the quality string around may be optional.
-    // inherent properties like mean or peak qual score can be computed trivially or alternatively stored if memory footprind would be a serious concern.
     reverse_strand: bool,
-    // Relevant for reporting
     start_pos: u32,
     // POTENTIAL FUTURE
     // pattern_id: u32,
@@ -429,7 +421,7 @@ impl ProgConfig {
             insert_length: json_config.content_length,
             expected_start: json_config.expect_begin,
             position_tolerance: json_config.tolerance,
-            min_peak_qual: json_config.qual_peak, // TODO: Maybe change the config type to accept options
+            min_peak_qual: json_config.qual_peak,
             min_mean_qual: json_config.qual_mean,
         })
     }

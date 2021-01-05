@@ -169,8 +169,8 @@ fn write_config_header<T: std::io::Write>(buf: &mut T, cfg: &ProgConfig) -> std:
 
 struct PrecomputedPatterns {
     fwd_start: ExactPattern,
-    fwd_end: ExactPattern,
-    rev_start: ExactPattern, 
+    fwd_end: Vec<u8>,
+    rev_start: Vec<u8>, 
     rev_end: ExactPattern,
     content_len: usize,
     start_len: usize,
@@ -178,6 +178,9 @@ struct PrecomputedPatterns {
     expt_begin: usize,
     expt_end: usize,
 
+    fwd_dist: usize,
+    rev_dist: usize,
+    total_len: usize,
 }
 
 struct ReadFilter<'a, T: std::io::Read> {
@@ -193,17 +196,21 @@ where
     T: std::io::Read,
 {
     fn new(fq_records: Records<T>, cfg: &ProgConfig, stats: &'a mut RunningStats) -> Self {
-        let expt_begin = cfg.expected_start.saturating_sub(cfg.position_tolerance);
-        let expt_end = cfg.expected_start + cfg.position_tolerance;
+        let expt_begin = cfg.expected_start.saturating_sub(cfg.position_tolerance) as usize;
+        let expt_end = (cfg.expected_start + cfg.position_tolerance) as usize;
 
         let min_mean_qual = cfg.min_mean_qual;
         let min_peak_qual = cfg.min_peak_qual;
 
         let start_len = cfg.left_flank.len();
         let end_len = cfg.right_flank.len();
+        let content_len= cfg.insert_length as usize;
+        let total_len = start_len + content_len + end_len;
+        let fwd_dist = start_len + content_len;
+        let rev_dist = end_len + content_len;
         let fwd_start = ExactPattern::new(cfg.left_flank.as_bytes());
-        let fwd_end = ExactPattern::new(cfg.right_flank.as_bytes());
-        let rev_start = ExactPattern::new(dna::revcomp(cfg.left_flank.as_bytes()));
+        let fwd_end = cfg.right_flank.as_bytes().to_vec();
+        let rev_start = dna::revcomp(cfg.left_flank.as_bytes());
         let rev_end = ExactPattern::new(dna::revcomp(cfg.right_flank.as_bytes()));
 
         let pats = PrecomputedPatterns{
@@ -211,11 +218,14 @@ where
             fwd_end,
             rev_start,
             rev_end,
-            content_len: cfg.insert_length as usize,
+            content_len,
             start_len,
             end_len,
-            expt_begin: expt_begin as usize,
-            expt_end: expt_end as usize,
+            expt_begin,
+            expt_end,
+            fwd_dist,
+            rev_dist,
+            total_len,
         };
 
         ReadFilter {
@@ -330,8 +340,9 @@ fn match_both_strands<'a>(
     let mat_fwd = patterns.fwd_start.find_all(read_seq).filter(|&idx| 
         (idx>= patterns.expt_begin) 
          && (idx<= patterns.expt_end) 
-         && (patterns.fwd_end.find_all(read_seq).any(|odx| 
-            idx + patterns.start_len + patterns.content_len == odx))).next();
+         && (idx+patterns.total_len<= read_len) // Necessary to ensure legal indexing
+         && (&read_seq[idx+patterns.fwd_dist..idx+patterns.total_len]==patterns.fwd_end)
+        ).next();
     
     let fwd = if let Some(idx) = mat_fwd {
         let start_idx = idx + patterns.start_len;
@@ -346,14 +357,14 @@ fn match_both_strands<'a>(
     } else {None};
     
 
-    let mat_rev = patterns.rev_start.find_all(read_seq).filter(|&idx| 
-        (idx + patterns.start_len + patterns.expt_begin <= read_len) 
-         && (idx + patterns.start_len + patterns.expt_end >= read_len) 
-         && (patterns.rev_end.find_all(read_seq).any(|odx|
-            odx + patterns.end_len + patterns.content_len == idx))).next();
+    let mat_rev = patterns.rev_end.find_all(read_seq).filter(|&idx| 
+        (idx + patterns.total_len + patterns.expt_begin <= read_len) 
+         && (idx + patterns.total_len + patterns.expt_end >= read_len) 
+         && (&read_seq[idx+patterns.rev_dist..idx+patterns.total_len]==patterns.rev_start) // Legal due to first condition
+        ).next();
     let rev = if let Some(idx) = mat_rev {
-        let start_pos = read_len - idx;
-        let range = idx-patterns.content_len..idx;
+        let start_pos = read_len - (idx + patterns.rev_dist); // No underflow possible due to first condition
+        let range = idx+patterns.end_len..idx + patterns.rev_dist;
         let mat = CandidateMatch{
             seq: &read_seq[range.clone()],
             quality: &read.qual()[range],

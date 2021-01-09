@@ -1,15 +1,15 @@
 use bio::alphabets::dna;
 use bio::io::fastq;
+#[allow(unused_imports)]
+use bio::pattern_matching::{bndm, shift_and};
 use counter::Counter;
 use fastq::Records;
 use read_filter::handling::{GracefulOption, GracefulResult};
 use read_filter::jsonconf;
-use std::{fmt, io::BufWriter, io::Write};
 use std::iter::Iterator;
 #[allow(unused_imports)]
 use std::{error::Error, fmt::Display, todo};
-#[allow(unused_imports)]
-use bio::pattern_matching::{shift_and, bndm};
+use std::{fmt, io::BufWriter, io::Write};
 
 type ExactPattern = shift_and::ShiftAnd;
 
@@ -33,9 +33,15 @@ fn main() {
         .replace(".txt.gz", OUT_ENDING)
         .replace(".fastq", OUT_ENDING);
     let outdir = std::path::Path::new(&cfg.outdir);
-    std::fs::create_dir_all(outdir).unwrap_messageful(&format!("Could not create output directory at: {:?}", outdir.to_str().unwrap()));
+    std::fs::create_dir_all(outdir).unwrap_messageful(&format!(
+        "Could not create output directory at: {:?}",
+        outdir.to_str().unwrap()
+    ));
     let outfile = outdir.join(oname);
-    let ofile = std::fs::File::create(&outfile).unwrap_messageful(&format!("Could not create output file at: {:?}", outfile.to_str().unwrap()));
+    let ofile = std::fs::File::create(&outfile).unwrap_messageful(&format!(
+        "Could not create output file at: {:?}",
+        outfile.to_str().unwrap()
+    ));
 
     // FASTQ parsing
     let (reader, _) = niffler::from_path(infile).unwrap_formatful("Invalid input path!");
@@ -44,11 +50,9 @@ fn main() {
     let mut stats = RunningStats::default();
     let rf = ReadFilter::new(fq_reader.records(), &cfg, &mut stats);
 
-    let c = rf
-        .map(move |a| a.content)
-        .collect::<Counter<_>>();
-    
-    let mut ofile= BufWriter::new(ofile);
+    let c = rf.map(move |a| a.content).collect::<Counter<_>>();
+
+    let mut ofile = BufWriter::new(ofile);
     write_config_header(&mut ofile, &cfg).unwrap_messageful("Error while writing output");
     write_stats_header(&mut ofile, &stats);
     writeln!(ofile, "seq\treads");
@@ -149,12 +153,14 @@ fn write_config_header<T: std::io::Write>(buf: &mut T, cfg: &ProgConfig) -> std:
     // Code duplication or out of sync risk
     let expt_begin = cfg.expected_start.saturating_sub(cfg.position_tolerance);
     let expt_end = cfg.expected_start + cfg.position_tolerance;
-    let regex = format!("^.{{{expt_begin},{expt_end}}}{left_flank}([ACGT]{{{content_length}}}){right_flank}.*$",
-            expt_begin=expt_begin,
-            expt_end=expt_end,
-            left_flank=cfg.left_flank,
-            right_flank=cfg.right_flank,
-            content_length=cfg.insert_length);
+    let regex = format!(
+        "^.{{{expt_begin},{expt_end}}}{left_flank}([ACGT]{{{content_length}}}){right_flank}.*$",
+        expt_begin = expt_begin,
+        expt_end = expt_end,
+        left_flank = cfg.left_flank,
+        right_flank = cfg.right_flank,
+        content_length = cfg.insert_length
+    );
     write!(
         buf,
         "# filter: {regex}\n\
@@ -166,15 +172,14 @@ fn write_config_header<T: std::io::Write>(buf: &mut T, cfg: &ProgConfig) -> std:
     )
 }
 
-
 struct PrecomputedPatterns {
     fwd_start: ExactPattern,
     fwd_end: Vec<u8>,
-    rev_start: Vec<u8>, 
+    rev_start: Vec<u8>,
     rev_end: ExactPattern,
     content_len: usize,
     start_len: usize,
-    end_len:usize,
+    end_len: usize,
     expt_begin: usize,
     expt_end: usize,
 
@@ -204,7 +209,7 @@ where
 
         let start_len = cfg.left_flank.len();
         let end_len = cfg.right_flank.len();
-        let content_len= cfg.insert_length as usize;
+        let content_len = cfg.insert_length as usize;
         let total_len = start_len + content_len + end_len;
         let fwd_dist = start_len + content_len;
         let rev_dist = end_len + content_len;
@@ -213,7 +218,7 @@ where
         let rev_start = dna::revcomp(cfg.left_flank.as_bytes());
         let rev_end = ExactPattern::new(dna::revcomp(cfg.right_flank.as_bytes()));
 
-        let pats = PrecomputedPatterns{
+        let pats = PrecomputedPatterns {
             fwd_start,
             fwd_end,
             rev_start,
@@ -289,7 +294,7 @@ struct CandidateMatch<'a> {
     start_pos: u32, // Adjusted to common strandedness? TODO
 }
 
-impl<'a> CandidateMatch<'a>{
+impl<'a> CandidateMatch<'a> {
     fn materialize(self) -> SearchMatch {
         //! Consumes self to produce an owned `SearchMatch`
         //! calls `dna::revcomp` to produce the useful sequence orientation

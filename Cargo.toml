@@ -23,4 +23,5 @@ predicates = "1"
 tempfile = "3"
 
 [profile.release]
-debug = true
+debug = false
+lto = true

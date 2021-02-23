@@ -15,6 +15,7 @@ niffler = "2.3" # explcitly used for gzip handling
 counter = "0.5" # not sure if I actually want to use it
 serde_json = "1"
 serde = "1"
+ndarray = "0.14"
 
 [dev-dependencies]
 assert_cmd = "1"

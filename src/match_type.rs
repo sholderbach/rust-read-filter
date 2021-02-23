@@ -9,9 +9,9 @@ use std::io;
 #[derive(Debug, PartialEq)]
 pub struct SearchMatch {
     pub seq: Vec<u8>,
-    quality: Vec<u8>, // TODO maybe have a variant that doesn't keep quality if not needed
-    reverse_strand: bool,
-    start_pos: u32,
+    pub quality: Vec<u8>, // TODO maybe have a variant that doesn't keep quality if not needed
+    pub reverse_strand: bool,
+    pub start_pos: u32,
 }
 
 impl SearchMatch {

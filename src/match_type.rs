@@ -8,13 +8,21 @@ use std::io;
 /// Owned version of a succesful match
 #[derive(Debug, PartialEq)]
 pub struct SearchMatch {
+    /// Sequence as bytes
     pub seq: Vec<u8>,
+    /// Quality string
+    ///
+    /// ATTENTION:
+    /// Direct encoding from fastq. For PHRED scores subtract 33!
     pub quality: Vec<u8>, // TODO maybe have a variant that doesn't keep quality if not needed
+    /// Whether match occurred on the reverse complement strand
     pub reverse_strand: bool,
+    /// Index from the (reverse complement) start starting the content sequence
     pub start_pos: u32,
 }
 
 impl SearchMatch {
+    /// Lowest quality observed in the content of the match. Corresponds to a peak in error probability
     pub fn peak_qual(&self) -> u8 {
         self.quality
             .iter()
@@ -22,11 +30,13 @@ impl SearchMatch {
             .expect("Expect the extraction of nonempty content")
             - 33
     }
+    /// integer average quality in the content of the match. Equivalent to `CandidateMatch.mean_qual` used to filter reads.
     pub fn mean_qual(&self) -> u8 {
         let avg_qual =
             self.quality.iter().fold(0u32, |x, b| x + (*b as u32)) / self.quality.len() as u32 - 33;
         avg_qual as u8
     }
+    /// Floating point average quality (Higher accuracy for diagnostics)
     pub fn accurate_mean_qual(&self) -> f32 {
         let avg_qual = self.quality.iter().fold(0u32, |x, b| x + (*b as u32)) as f32
             / self.quality.len() as f32
@@ -34,11 +44,13 @@ impl SearchMatch {
         avg_qual
     }
 
+    /// By providing a sequence `id` a match can be turned into a `fastq::Record` with the sequence in the orientation defined by the pattern
     pub fn to_fastq(&self, id: &str) -> fastq::Record {
         let strand = if self.reverse_strand { "-" } else { "+" };
         fastq::Record::with_attrs(id, Some(strand), &self.seq, &self.quality)
     }
 
+    /// By providing a sequence `id` a match can be turned into a `fastq::Record` with the sequence in the original orientation
     pub fn to_fastq_original_strand(&self, id: &str) -> fastq::Record {
         let strand = if self.reverse_strand { "-" } else { "+" };
         if !self.reverse_strand {
@@ -53,6 +65,7 @@ impl SearchMatch {
         }
     }
 
+    /// Output a single tab-separated record for diagnostics
     pub fn write_read_report_line<T: io::Write>(&self, buf: &mut T) -> io::Result<()> {
         let seq: &str = std::str::from_utf8(&self.seq).unwrap_or_default();
         write!(

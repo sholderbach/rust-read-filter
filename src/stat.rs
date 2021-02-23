@@ -18,6 +18,11 @@ pub struct RunningStats {
     pub mean_rejected: u32,
 }
 
+/// Tracker of important QC information
+///
+/// How are quality scores distributed accross the region of interest?
+/// How accurate is the position information?
+/// Append the records to this map.
 pub struct QualStats {
     dat: HashMap<(u32, u8, u8), QualStatEntry>,
 }
@@ -36,7 +41,7 @@ impl QualStats {
             .and_modify(|existing| *existing += mat.into())
             .or_insert_with(|| mat.into());
     }
-    pub fn entries_ordered(&self) -> QualStatsIter {
+    fn entries_ordered(&self) -> QualStatsIter {
         let mut keys: Vec<_> = self.dat.keys().cloned().collect();
         keys.sort_unstable_by_key(|&e| Reverse(e)); // TODO: Verify behavior with tuple key
         QualStatsIter {
@@ -44,13 +49,18 @@ impl QualStats {
             qs: self,
         }
     }
-    pub fn entries_unordered(&self) -> QualStatsIter {
+    #[allow(dead_code)]
+    fn entries_unordered(&self) -> QualStatsIter {
         let keys: Vec<_> = self.dat.keys().into_iter().cloned().collect();
         QualStatsIter {
             ord_keys: keys,
             qs: self,
         }
     }
+
+    /// Write the QC report directly as a .tsv
+    ///
+    /// By filtering by `dist_start`, `peak_qual`, `mean_qual` downstream tools can identify more appropriate filter values.
     pub fn write_to_buf<T: io::Write>(&self, buf: &mut T, seq_len: usize) -> io::Result<()> {
         write_qual_report_header(buf, seq_len)?;
         for (k, v) in self.entries_ordered() {
@@ -72,7 +82,7 @@ impl QualStats {
     }
 }
 
-pub struct QualStatsIter<'a> {
+struct QualStatsIter<'a> {
     ord_keys: Vec<(u32, u8, u8)>,
     qs: &'a QualStats,
 }
@@ -87,21 +97,21 @@ impl<'a> Iterator for QualStatsIter<'a> {
     }
 }
 
-pub struct QualStatEntry {
+struct QualStatEntry {
     read_count: u32,
     reverse_count: u32,
     qual_arr: Array1<u32>,
 }
 
 impl QualStatEntry {
-    pub fn normalized_qual(&self) -> Array1<f32> {
+    fn normalized_qual(&self) -> Array1<f32> {
         let arr: Array1<f32> = self.qual_arr.mapv(|i| i as f32);
         arr / (self.read_count as f32) - 33.0
     }
-    pub fn reads(&self) -> u32 {
+    fn reads(&self) -> u32 {
         self.read_count
     }
-    pub fn reverse_reads(&self) -> u32 {
+    fn reverse_reads(&self) -> u32 {
         self.reverse_count
     }
 }

@@ -5,6 +5,15 @@ use std::{error::Error, fs::File};
 
 /// JSON config for read_filter
 /// ## Example
+/// We expect our library to look like this:
+/// ``` txt
+///                               _____ROI_____
+/// ....(approx. 36 nt)...AGAGAGGC...(21 nt)...GCCCAGGC...
+/// ```
+/// We configure with `tolerance` how sensitive we are to position variation.
+///
+/// To filter by quality we have two optional parameters `qual_peak` and `qual_mean` which define the minimal required PHRED score either for a single position or on average over the sequence of interest 
+///
 /// ``` json
 /// {
 ///     "left_flank": "AGAGAGGC",

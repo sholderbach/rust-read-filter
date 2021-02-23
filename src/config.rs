@@ -27,7 +27,9 @@ pub struct FilterConf {
     pub qual_mean: Option<u8>,
 }
 
-pub fn load_json_config<P: AsRef<std::path::Path>>(json_path: P) -> Result<FilterConf, Box<dyn std::error::Error>> {
+pub fn load_json_config<P: AsRef<std::path::Path>>(
+    json_path: P,
+) -> Result<FilterConf, Box<dyn std::error::Error>> {
     let reader = File::open(json_path)?;
     let res: FilterConf = serde_json::from_reader(reader)?;
     Ok(res)

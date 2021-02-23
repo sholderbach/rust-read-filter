@@ -67,7 +67,7 @@ impl SearchMatch {
         for &val in self.quality.iter() {
             write!(buf, "\t{}", val - 33)?;
         }
-        Ok(())
+        write!(buf, "\n")
     }
 }
 impl Display for SearchMatch {

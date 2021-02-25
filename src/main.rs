@@ -1,5 +1,6 @@
 use bio::io::fastq;
 use counter::Counter;
+use csv::WriterBuilder;
 use read_filter::config::ProgConfig;
 use read_filter::handling::{GracefulOption, GracefulResult};
 use read_filter::matching::ReadFilter;
@@ -35,17 +36,19 @@ fn main() {
             .replace(".fastq", ending);
         outdir.join(oname)
     };
-    fn create_file(path: PathBuf) -> BufWriter<File> {
-        let f = std::fs::File::create(&path).unwrap_messageful(&format!(
+    fn create_file(path: PathBuf) -> File {
+        std::fs::File::create(&path).unwrap_messageful(&format!(
             "Could not create output file at: {:?}",
             path.to_str().unwrap()
-        ));
-        BufWriter::new(f)
+        ))
+    }
+    fn create_buffered_file(path: PathBuf) -> BufWriter<File> {
+        BufWriter::new(create_file(path))
     }
     let outfile = get_outpath(OUT_ENDING);
     let rr_file = get_outpath(RR_ENDING);
     let qc_file = get_outpath(QC_ENDING);
-    let mut ofile = create_file(outfile);
+    let mut ofile = create_buffered_file(outfile);
 
     // FASTQ parsing
     let (reader, _compression) = niffler::from_path(infile).unwrap_formatful("Invalid input path!");
@@ -61,8 +64,12 @@ fn main() {
             let mut rr_file = create_file(rr_file);
             write_read_report_header(&mut rr_file, cfg.insert_length as usize)
                 .unwrap_messageful("Error while writing output");
+            let mut wtr = WriterBuilder::new()
+                .has_headers(false)
+                .delimiter(b'\t')
+                .from_writer(rr_file);
             rf.map(|a| {
-                a.write_read_report_line(&mut rr_file).unwrap();
+                a.write_read_report_line(&mut wtr).unwrap();
                 a.seq
             })
             .collect::<Counter<Vec<u8>>>()
@@ -77,9 +84,13 @@ fn main() {
             let mut rr_file = create_file(rr_file);
             write_read_report_header(&mut rr_file, cfg.insert_length as usize)
                 .unwrap_messageful("Error while writing output");
+            let mut wtr = WriterBuilder::new()
+                .has_headers(false)
+                .delimiter(b'\t')
+                .from_writer(rr_file);
             rf.map(|a| {
                 qual_stats.append(&a);
-                a.write_read_report_line(&mut rr_file).unwrap();
+                a.write_read_report_line(&mut wtr).unwrap();
                 a.seq
             })
             .collect::<Counter<Vec<u8>>>()
@@ -94,7 +105,7 @@ fn main() {
     }
 
     if cfg.qc_required {
-        let mut qc_file = create_file(qc_file);
+        let mut qc_file = create_buffered_file(qc_file);
         qual_stats
             .write_to_buf(&mut qc_file, cfg.insert_length as usize)
             .unwrap_messageful("Error while writing output");

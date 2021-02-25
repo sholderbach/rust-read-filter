@@ -1,9 +1,9 @@
 //! Types holding an individual match
 use bio::alphabets::dna;
 use bio::io::fastq;
-use std::fmt;
+use csv::Writer;
 use std::fmt::Display;
-use std::io;
+use std::{fmt, fs::File};
 
 /// Owned version of a succesful match
 #[derive(Debug, PartialEq)]
@@ -66,21 +66,16 @@ impl SearchMatch {
     }
 
     /// Output a single tab-separated record for diagnostics
-    pub fn write_read_report_line<T: io::Write>(&self, buf: &mut T) -> io::Result<()> {
-        let seq: &str = std::str::from_utf8(&self.seq).unwrap_or_default();
-        write!(
-            buf,
-            "{seq}\t{dist_start}\t{rev}\t{peak_qual}\t{mean_qual}",
-            seq = seq,
-            dist_start = self.start_pos,
-            rev = self.reverse_strand,
-            peak_qual = self.peak_qual(),
-            mean_qual = self.accurate_mean_qual(),
-        )?;
-        for &val in self.quality.iter() {
-            write!(buf, "\t{}", val - 33)?;
-        }
-        write!(buf, "\n")
+    pub fn write_read_report_line(&self, wtr: &mut Writer<File>) -> csv::Result<()> {
+        let qual: Vec<_> = self.quality.iter().map(|v| v - 33).collect();
+        wtr.serialize((
+            std::str::from_utf8(&self.seq).unwrap(),
+            self.start_pos,
+            self.reverse_strand,
+            self.peak_qual(),
+            self.accurate_mean_qual(),
+            qual,
+        ))
     }
 }
 impl Display for SearchMatch {

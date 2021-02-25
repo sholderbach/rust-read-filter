@@ -878,6 +878,7 @@ dependencies = [
  "bio",
  "clap",
  "counter",
+ "csv",
  "ndarray 0.14.0",
  "niffler",
  "predicates",

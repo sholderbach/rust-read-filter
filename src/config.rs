@@ -12,7 +12,7 @@ use std::{error::Error, fs::File};
 /// ```
 /// We configure with `tolerance` how sensitive we are to position variation.
 ///
-/// To filter by quality we have two optional parameters `qual_peak` and `qual_mean` which define the minimal required PHRED score either for a single position or on average over the sequence of interest 
+/// To filter by quality we have two optional parameters `qual_peak` and `qual_mean` which define the minimal required PHRED score either for a single position or on average over the sequence of interest
 ///
 /// ``` json
 /// {

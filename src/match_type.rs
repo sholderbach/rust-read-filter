@@ -156,4 +156,6 @@ impl<'a> CandidateMatch<'a> {
         // SAFETY: as u8 considered safe as valid PHRED string assumed
         avg_qual as u8
     }
+
+    pub fn seq(&self) -> &'a [u8] {self.seq}
 }

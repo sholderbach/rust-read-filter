@@ -102,6 +102,13 @@ fn main() {
     }
 }
 
+pub fn is_dna_char(char: &u8) -> bool {
+    match char {
+        b'A' | b'C' | b'G' | b'T' => true,
+        _ => false
+    }
+}
+
 pub struct PrecomputedPatterns {
     pub fwd_start: ExactPattern,
     pub fwd_end: Vec<u8>,
@@ -199,6 +206,9 @@ where
                 _ => None,
             };
             if let Some(result) = provisional {
+                if !result.seq().iter().all(is_dna_char) {
+                    continue;
+                }
                 self.stats.matching_reads += 1;
                 if let Some(min) = self.min_peak_qual {
                     if result.peak_qual() < min {

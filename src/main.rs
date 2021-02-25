@@ -1,25 +1,17 @@
 #[allow(unused_imports)]
 use bio::pattern_matching::{bndm, shift_and};
-use bio::{alphabets::dna, io::fastq};
+use bio::io::fastq;
+use bio::alphabets::dna;
 use counter::Counter;
 use fastq::Records;
 use read_filter::match_type::{CandidateMatch, SearchMatch};
-use read_filter::output::{write_config_header, write_stats_header};
-use read_filter::stat::RunningStats;
-use read_filter::{config::ProgConfig, stat::QualStats};
-use read_filter::{
-    handling::{GracefulOption, GracefulResult},
-    output::write_read_report_header,
-};
+use read_filter::output::{write_config_header, write_read_report_header, write_stats_header};
+use read_filter::stat::{QualStats, RunningStats};
+use read_filter::config::ProgConfig;
+use read_filter::handling::{GracefulOption, GracefulResult};
 #[allow(unused_imports)]
-use std::{error::Error, fmt::Display, todo};
-use std::{
-    fs::File,
-    io,
-    iter::Iterator,
-    path::{Path, PathBuf},
-};
-use std::{io::BufWriter, io::Write};
+use std::todo;
+use std::{fs::File, io::{self, BufWriter, Write}, iter::Iterator, path::{Path, PathBuf}};
 
 type ExactPattern = shift_and::ShiftAnd;
 

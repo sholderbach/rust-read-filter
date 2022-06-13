@@ -90,7 +90,7 @@ where
 
 impl<'a, T> Iterator for ReadFilter<'a, T>
 where
-    T: io::Read,
+    T: io::BufRead,
 {
     type Item = SearchMatch;
 

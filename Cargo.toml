@@ -9,19 +9,14 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bio = "0.32"
+bio = "0.41"
 clap = "2"
 niffler = "2.3" # explcitly used for gzip handling
 counter = "0.5" # not sure if I actually want to use it
 serde_json = "1"
 serde = "1"
-ndarray = "0.14"
+ndarray = "0.15"
 csv = "1.1"
-
-[dev-dependencies]
-assert_cmd = "1"
-predicates = "1"
-tempfile = "3"
 
 [profile.release]
 debug = false

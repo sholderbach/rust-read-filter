@@ -8,10 +8,7 @@ use fastq::Records;
 use std::io;
 
 pub fn is_dna_char(char: &u8) -> bool {
-    match char {
-        b'A' | b'C' | b'G' | b'T' => true,
-        _ => false,
-    }
+    matches!(char, b'A' | b'C' | b'G' | b'T')
 }
 
 pub struct PrecomputedPatterns {
@@ -143,16 +140,12 @@ pub fn match_both_strands<'a>(
     let read_seq = read.seq();
     let read_len = read_seq.len();
 
-    let mat_fwd = patterns
-        .fwd_start
-        .find_all(read_seq)
-        .filter(|&idx| {
-            (idx>= patterns.expt_begin)
+    let mat_fwd = patterns.fwd_start.find_all(read_seq).find(|&idx| {
+        (idx>= patterns.expt_begin)
          && (idx<= patterns.expt_end)
          && (idx+patterns.total_len<= read_len) // Necessary to ensure legal indexing
-         && (&read_seq[idx+patterns.fwd_dist..idx+patterns.total_len]==patterns.fwd_end)
-        })
-        .next();
+         && (read_seq[idx+patterns.fwd_dist..idx+patterns.total_len]==patterns.fwd_end)
+    });
 
     let fwd = if let Some(idx) = mat_fwd {
         let start_idx = idx + patterns.start_len;
@@ -168,18 +161,14 @@ pub fn match_both_strands<'a>(
         None
     };
 
-    let mat_rev = patterns
-        .rev_end
-        .find_all(read_seq)
-        .filter(
-            |&idx| {
-                (idx + patterns.total_len + patterns.expt_begin <= read_len)
-                    && (idx + patterns.total_len + patterns.expt_end >= read_len)
-                    && (&read_seq[idx + patterns.rev_dist..idx + patterns.total_len]
-                        == patterns.rev_start)
-            }, // Legal due to first condition
-        )
-        .next();
+    let mat_rev = patterns.rev_end.find_all(read_seq).find(
+        |&idx| {
+            (idx + patterns.total_len + patterns.expt_begin <= read_len)
+                && (idx + patterns.total_len + patterns.expt_end >= read_len)
+                && (read_seq[idx + patterns.rev_dist..idx + patterns.total_len]
+                    == patterns.rev_start)
+        }, // Legal due to first condition
+    );
     let rev = if let Some(idx) = mat_rev {
         let start_pos = read_len - (idx + patterns.rev_dist); // No underflow possible due to first condition
         let range = idx + patterns.end_len..idx + patterns.rev_dist;
